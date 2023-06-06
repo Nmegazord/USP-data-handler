@@ -1,3 +1,13 @@
+library(shiny)
+library(shinydashboard)
+library(shinyjs)
+library(plotly)
+library(shinycssloaders)
+library(shinyalert)
+library(AmbrDataImporter)
+library(shinyWidgets)
+library(openxlsx)
+
 # UI
 ui <- dashboardPage(
   dashboardHeader(title = "USP Data Handler"),
@@ -15,10 +25,12 @@ ui <- dashboardPage(
                                    'multipart/x-zip', 'application/x-compress', 'application/x-compressed',
                                    'application/gzip')),
               actionButton("submit", "Submit"),
-              selectInput("data_to_view", "Select data to preview", choices = ""),
-              tableOutput("contents"),
+              selectizeInput("data_to_view", "Select data to preview", choices = NULL, multiple = TRUE, options = list(maxItems = NULL)),
+              selectizeInput("culture_station_filter", "Filter by culture station", choices = NULL, multiple = TRUE, options = list(maxItems = NULL)),
+              selectizeInput("vessel_number_filter", "Filter by vessel number", choices = NULL, multiple = TRUE, options = list(maxItems = NULL)),
+              selectizeInput("vessel_id_filter", "Filter by vessel ID", choices = NULL, multiple = TRUE, options = list(maxItems = NULL)),
               downloadButton("downloadData", "Download as Excel"),
-              plotlyOutput("plot")
+              uiOutput("plot")
       )
     )
   )
@@ -69,15 +81,45 @@ server <- function(input, output, session) {
 
       my_data(imported_data)
 
-      # Update the selectInput choices
-      updateSelectInput(session, "data_to_view", choices = names(imported_data))
+      # Update the selectizeInput choices
+      updateSelectizeInput(session, "data_to_view", choices = names(imported_data))
+      updateSelectizeInput(session, "culture_station_filter", choices = unique(unlist(lapply(imported_data, function(x) unique(x$culture_station)))), selected = NULL)
+      updateSelectizeInput(session, "vessel_number_filter", choices = unique(unlist(lapply(imported_data, function(x) unique(x$vessel_number)))), selected = NULL)
+      updateSelectizeInput(session, "vessel_id_filter", choices = unique(unlist(lapply(imported_data, function(x) unique(x$vessel_id)))), selected = NULL)
     })
   })
 
-  output$contents <- renderTable({
-    # Display selected data frame
+  output$plot <- renderUI({
     req(input$data_to_view)
-    head(my_data()[[input$data_to_view]], n = 5)
+
+    plotly::plotlyOutput(paste0("plot_", input$data_to_view))
+  })
+
+  observe({
+    req(input$data_to_view)
+
+    for (i in seq_along(input$data_to_view)) {
+      local({
+        j <- i
+        output[[paste0("plot_", input$data_to_view[j])]] <- renderPlotly({
+          df <- my_data()[[input$data_to_view[j]]]
+
+          # Apply filters
+          if (!is.null(input$culture_station_filter) && length(input$culture_station_filter) > 0) {
+            df <- df[df$culture_station %in% input$culture_station_filter,]
+          }
+          if (!is.null(input$vessel_number_filter) && length(input$vessel_number_filter) > 0) {
+            df <- df[df$vessel_number %in% input$vessel_number_filter,]
+          }
+          if (!is.null(input$vessel_id_filter) && length(input$vessel_id_filter) > 0) {
+            df <- df[df$vessel_id %in% input$vessel_id_filter,]
+          }
+
+          plotly::plot_ly(df, x = ~time_from_inoculation, y = ~value, color = ~vessel_id, type = "scatter", mode = "lines") %>%
+            layout(title = input$data_to_view[j])
+        })
+      })
+    }
   })
 
   output$downloadData <- downloadHandler(
@@ -92,5 +134,4 @@ server <- function(input, output, session) {
   )
 }
 
-# Run the Shiny App
 shinyApp(ui, server)
