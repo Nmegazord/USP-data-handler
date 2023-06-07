@@ -20,17 +20,23 @@ ui <- dashboardPage(
     tabItems(
       tabItem(tabName = "upload",
               shinyalert::useShinyalert(),
-              fileInput("folder", "Choose ZIP File containing the AuditData folder",
+              helpText("Choose a ZIP file containing the AuditData folder to upload"),
+              fileInput("folder", "Choose ZIP File",
                         accept = c('application/zip', 'application/x-zip-compressed',
                                    'multipart/x-zip', 'application/x-compress', 'application/x-compressed',
                                    'application/gzip')),
-              actionButton("submit", "Submit"),
+              actionButton("submit", "Import Data"),
+              helpText("After submitting your file, select the data you want to preview"),
               pickerInput("data_to_view", "Select data to preview", choices = NULL, options = list(`actions-box` = TRUE), multiple = TRUE),
+              helpText("Filter the data by culture station, vessel number or vessel ID"),
               pickerInput("culture_station_filter", "Filter by culture station", choices = NULL, options = list(`actions-box` = TRUE), multiple = TRUE),
               pickerInput("vessel_number_filter", "Filter by vessel number", choices = NULL, options = list(`actions-box` = TRUE), multiple = TRUE),
               pickerInput("vessel_id_filter", "Filter by vessel ID", choices = NULL, options = list(`actions-box` = TRUE), multiple = TRUE),
-              downloadButton("downloadData", "Download as Excel"),
-              uiOutput("plot")
+              helpText("Check the box to display time in days instead of hours"),
+              checkboxInput("time_in_days", "Display time in days", value = FALSE),
+              uiOutput("plot"),
+              helpText("Once you are done, you can download the data as an Excel file"),
+              downloadButton("downloadData", "Download as Excel")
       )
     )
   )
@@ -115,7 +121,15 @@ server <- function(input, output, session) {
             df <- df[df$vessel_id %in% input$vessel_id_filter,]
           }
 
-          plotly::plot_ly(df, x = ~time_from_inoculation, y = ~value, color = ~vessel_id, type = "scatter", mode = "lines") %>%
+          # Add new column for labels
+          df$label <- paste(df$culture_station, df$vessel_number)
+
+          # Convert time to days if checkbox is checked
+          if (input$time_in_days) {
+            df$time_from_inoculation <- df$time_from_inoculation / 24
+          }
+
+          plotly::plot_ly(df, x = ~time_from_inoculation, y = ~value, color = ~label, type = "scatter", mode = "lines") %>%
             layout(title = input$data_to_view[j])
         })
       })
