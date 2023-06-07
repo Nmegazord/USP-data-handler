@@ -25,10 +25,10 @@ ui <- dashboardPage(
                                    'multipart/x-zip', 'application/x-compress', 'application/x-compressed',
                                    'application/gzip')),
               actionButton("submit", "Submit"),
-              selectizeInput("data_to_view", "Select data to preview", choices = NULL, multiple = TRUE, options = list(maxItems = NULL)),
-              selectizeInput("culture_station_filter", "Filter by culture station", choices = NULL, multiple = TRUE, options = list(maxItems = NULL)),
-              selectizeInput("vessel_number_filter", "Filter by vessel number", choices = NULL, multiple = TRUE, options = list(maxItems = NULL)),
-              selectizeInput("vessel_id_filter", "Filter by vessel ID", choices = NULL, multiple = TRUE, options = list(maxItems = NULL)),
+              pickerInput("data_to_view", "Select data to preview", choices = NULL, options = list(`actions-box` = TRUE), multiple = TRUE),
+              pickerInput("culture_station_filter", "Filter by culture station", choices = NULL, options = list(`actions-box` = TRUE), multiple = TRUE),
+              pickerInput("vessel_number_filter", "Filter by vessel number", choices = NULL, options = list(`actions-box` = TRUE), multiple = TRUE),
+              pickerInput("vessel_id_filter", "Filter by vessel ID", choices = NULL, options = list(`actions-box` = TRUE), multiple = TRUE),
               downloadButton("downloadData", "Download as Excel"),
               uiOutput("plot")
       )
@@ -82,10 +82,10 @@ server <- function(input, output, session) {
       my_data(imported_data)
 
       # Update the selectizeInput choices
-      updateSelectizeInput(session, "data_to_view", choices = names(imported_data))
-      updateSelectizeInput(session, "culture_station_filter", choices = unique(unlist(lapply(imported_data, function(x) unique(x$culture_station)))), selected = NULL)
-      updateSelectizeInput(session, "vessel_number_filter", choices = unique(unlist(lapply(imported_data, function(x) unique(x$vessel_number)))), selected = NULL)
-      updateSelectizeInput(session, "vessel_id_filter", choices = unique(unlist(lapply(imported_data, function(x) unique(x$vessel_id)))), selected = NULL)
+      updatePickerInput(session, "data_to_view", choices = names(imported_data))
+      updatePickerInput(session, "culture_station_filter", choices = unique(unlist(lapply(imported_data, function(x) unique(x$culture_station)))), selected = NULL)
+      updatePickerInput(session, "vessel_number_filter", choices = unique(unlist(lapply(imported_data, function(x) unique(x$vessel_number)))), selected = NULL)
+      updatePickerInput(session, "vessel_id_filter", choices = unique(unlist(lapply(imported_data, function(x) unique(x$vessel_id)))), selected = NULL)
     })
   })
 
