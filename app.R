@@ -8,6 +8,9 @@ library(AmbrDataImporter)
 library(shinyWidgets)
 library(openxlsx)
 
+options(shiny.maxRequestSize = 300*1024^2)
+shinyjs::useShinyjs()
+
 # UI
 ui <- dashboardPage(
   dashboardHeader(title = "USP Data Handler"),
@@ -20,38 +23,46 @@ ui <- dashboardPage(
     tabItems(
       tabItem(tabName = "upload",
               shinyalert::useShinyalert(),
-              helpText("Choose a ZIP file containing the AuditData folder to upload"),
-              fileInput("folder", "Choose ZIP File",
-                        accept = c('application/zip', 'application/x-zip-compressed',
-                                   'multipart/x-zip', 'application/x-compress', 'application/x-compressed',
-                                   'application/gzip')),
-              actionButton("submit", "Import Data"),
-              helpText("After submitting your file, select the data you want to preview"),
-              pickerInput("data_to_view", "Select data to preview", choices = NULL, options = list(`actions-box` = TRUE), multiple = TRUE),
-              helpText("Filter the data by culture station, vessel number or vessel ID"),
-              pickerInput("culture_station_filter", "Filter by culture station", choices = NULL, options = list(`actions-box` = TRUE), multiple = TRUE),
-              pickerInput("vessel_number_filter", "Filter by vessel number", choices = NULL, options = list(`actions-box` = TRUE), multiple = TRUE),
-              pickerInput("vessel_id_filter", "Filter by vessel ID", choices = NULL, options = list(`actions-box` = TRUE), multiple = TRUE),
+              div(class = "well",
+                  helpText("Choose a ZIP file containing the AuditData folder to upload and click Upload Data"),
+                  fileInput("folder", "Choose ZIP File",
+                            accept = c('application/zip', 'application/x-zip-compressed',
+                                       'multipart/x-zip', 'application/x-compress', 'application/x-compressed',
+                                       'application/gzip')),
+                  actionButton("submit", "Analyze Data")),
+              div(class = "well",
+                  helpText("After submitting your file, select the data you want to preview. A graph will appear below."),
+                  pickerInput("data_to_view", "Select data to preview", choices = NULL, options = list(`actions-box` = TRUE), multiple = TRUE),
+                  helpText("Filter the data by culture station, vessel number, or vessel ID"),
+                  pickerInput("culture_station_filter", "Filter by culture station", choices = NULL, options = list(`actions-box` = TRUE), multiple = TRUE),
+                  pickerInput("vessel_number_filter", "Filter by vessel number", choices = NULL, options = list(`actions-box` = TRUE), multiple = TRUE),
+                  pickerInput("vessel_id_filter", "Filter by vessel ID", choices = NULL, options = list(`actions-box` = TRUE), multiple = TRUE),
               helpText("Check the box to display time in days instead of hours"),
-              checkboxInput("time_in_days", "Display time in days", value = FALSE),
+              checkboxInput("time_in_days", "Display time in days", value = FALSE)),
               uiOutput("plot"),
-              helpText("Once you are done, you can download the data as an Excel file"),
-              downloadButton("downloadData", "Download as Excel")
+              div(class = "well",
+                helpText("Once you are done, you can download the entire dataset as an Excel file"),
+                div(style = "text-align: right", # Align to the right
+                  downloadButton("downloadData", "Download as Excel")))
       )
     )
   )
 )
 
-options(shiny.maxRequestSize = 300*1024^2)
+
+
+
 
 # Server
 server <- function(input, output, session) {
-  my_data <- reactiveVal(list())
+  my_data <- reactiveValues(data = list())
+  loading_data <- reactiveVal(FALSE)
 
   observeEvent(input$submit, {
     req(input$folder)
 
-    shinyjs::runjs("Shiny.setInputValue('showSpinner', true)")
+    loading_data(TRUE)
+    shinyjs::disable("submit")
 
     withProgress(message = 'Importing Data...', {
       tmpdir <- tempdir()
@@ -85,41 +96,60 @@ server <- function(input, output, session) {
 
       shinyalert::shinyalert("Success", "Data imported successfully.", type = "success")
 
-      my_data(imported_data)
+      my_data$data <- imported_data
+      loading_data(FALSE)
+      shinyjs::enable("submit")
 
       # Update the selectizeInput choices
-      updatePickerInput(session, "data_to_view", choices = names(imported_data))
-      updatePickerInput(session, "culture_station_filter", choices = unique(unlist(lapply(imported_data, function(x) unique(x$culture_station)))), selected = NULL)
-      updatePickerInput(session, "vessel_number_filter", choices = unique(unlist(lapply(imported_data, function(x) unique(x$vessel_number)))), selected = NULL)
-      updatePickerInput(session, "vessel_id_filter", choices = unique(unlist(lapply(imported_data, function(x) unique(x$vessel_id)))), selected = NULL)
+      # Update the selectizeInput choices
+      tryCatch({
+        updatePickerInput(session, "data_to_view", choices = names(imported_data))
+
+        culture_station_choices <- unique(unlist(lapply(imported_data, function(x) levels(x$culture_station))))
+        updatePickerInput(session, "culture_station_filter", choices = culture_station_choices, selected = NULL)
+
+        vessel_number_choices <- unique(unlist(lapply(imported_data, function(x) as.character(x$vessel_number))))
+        updatePickerInput(session, "vessel_number_filter", choices = vessel_number_choices, selected = NULL)
+
+        vessel_id_choices <- unique(unlist(lapply(imported_data, function(x) as.character(x$vessel_id))))
+        updatePickerInput(session, "vessel_id_filter", choices = vessel_id_choices, selected = NULL)
+      }, error = function(e) {
+        print(paste("Error updating picker inputs:", e$message))
+      })
+
+    })
+  })
+
+  filtered_data <- reactive({
+    req(input$data_to_view, my_data$data)
+    apply_filters <- function(df, filter_values, column) {
+      if (!is.null(filter_values) && length(filter_values) > 0) {
+        df <- df[df[[column]] %in% filter_values,]
+      }
+      df
+    }
+    lapply(my_data$data[input$data_to_view], function(df) {
+      df <- apply_filters(df, input$culture_station_filter, "culture_station")
+      df <- apply_filters(df, input$vessel_number_filter, "vessel_number")
+      df <- apply_filters(df, input$vessel_id_filter, "vessel_id")
+      df
     })
   })
 
   output$plot <- renderUI({
     req(input$data_to_view)
-
-    plotly::plotlyOutput(paste0("plot_", input$data_to_view))
+    lapply(input$data_to_view, function(data_name) {
+      plotly::plotlyOutput(paste0("plot_", data_name))
+    })
   })
 
   observe({
-    req(input$data_to_view)
-
+    req(input$data_to_view, filtered_data())
     for (i in seq_along(input$data_to_view)) {
       local({
         j <- i
         output[[paste0("plot_", input$data_to_view[j])]] <- renderPlotly({
-          df <- my_data()[[input$data_to_view[j]]]
-
-          # Apply filters
-          if (!is.null(input$culture_station_filter) && length(input$culture_station_filter) > 0) {
-            df <- df[df$culture_station %in% input$culture_station_filter,]
-          }
-          if (!is.null(input$vessel_number_filter) && length(input$vessel_number_filter) > 0) {
-            df <- df[df$vessel_number %in% input$vessel_number_filter,]
-          }
-          if (!is.null(input$vessel_id_filter) && length(input$vessel_id_filter) > 0) {
-            df <- df[df$vessel_id %in% input$vessel_id_filter,]
-          }
+          df <- filtered_data()[[j]]
 
           # Add new column for labels
           df$label <- paste(df$culture_station, df$vessel_number)
@@ -142,10 +172,19 @@ server <- function(input, output, session) {
     },
     content = function(file) {
       withProgress(message = 'Exporting Data...', {
-        write_to_excel(my_data(), file)
+        write_to_excel(my_data$data, file)
       })
     }
   )
+
+  observe({
+    req(loading_data())
+    if (loading_data()) {
+      shinyjs::disable(c("culture_station_filter", "vessel_number_filter", "vessel_id_filter", "data_to_view", "downloadData", "time_in_days"))
+    } else {
+      shinyjs::enable(c("culture_station_filter", "vessel_number_filter", "vessel_id_filter", "data_to_view", "downloadData", "time_in_days"))
+    }
+  })
 }
 
 shinyApp(ui, server)
