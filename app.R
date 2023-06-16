@@ -7,6 +7,7 @@ library(shinyalert)
 library(AmbrDataImporter)
 library(shinyWidgets)
 library(openxlsx)
+library(devtools)
 
 options(shiny.maxRequestSize = 300*1024^2)
 shinyjs::useShinyjs()
